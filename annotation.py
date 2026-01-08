@@ -9,7 +9,7 @@ from tkinter import messagebox, scrolledtext
 from PIL import Image, ImageTk
 
 # --- 設定 ---
-IMAGE_DIR = 'output'
+IMAGE_DIR = 'input'
 CLASSES_FILE = 'classes.txt'
 MASTER_OUTPUT_DIR = 'annotations_output'
 OUTPUT_FOLDERS = {
