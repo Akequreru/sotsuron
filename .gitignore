@@ -1,4 +1,7 @@
-/annotations_output
+annotations_output/coco_json/*
+annotations_output/voc_xml/*
+annotations_output/yolo_txt/*
 /input_images
-/input
-/output
+input/*
+output/*
+/venv311
