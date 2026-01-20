@@ -5,6 +5,7 @@ annotations_output/yolo_txt/*
 input/*
 output/*
 /venv311
+venv
 credentials.json
 captures_log.csv
 last_index.txt

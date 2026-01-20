@@ -98,7 +98,7 @@ def log_to_csv(title, url, timestamp, res_text):
 def process_single_video(youtube_url):
     current_index = get_next_index()
     
-    # 1. 4K(2160p)までの映像ストリームを狙う設定
+    # 【4K/最高画質用設定】
     ydl_opts = {
         'format': 'bestvideo[height<=2160]', 
         'quiet': True,
@@ -108,20 +108,16 @@ def process_single_video(youtube_url):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             info = ydl.extract_info(youtube_url, download=False)
-            
             stream_url = None
             if 'formats' in info:
-                # 【修正ポイント】 heightがNoneの場合を考慮してソートする
-                # x.get('height') が None の場合は 0 として扱う
+                # heightがNoneの場合を考慮してソート
                 formats = sorted(
                     info['formats'], 
                     key=lambda x: (x.get('height') if x.get('height') is not None else 0), 
                     reverse=True
                 )
-                
                 for f in formats:
                     u = f.get('url', '')
-                    # OpenCVで開ける直接URLであり、かつ映像データがあるもの
                     if u and '.m3u8' not in u and f.get('vcodec') != 'none':
                         stream_url = u
                         break
@@ -133,7 +129,6 @@ def process_single_video(youtube_url):
                 raise Exception("ストリームURLの取得に失敗しました。")
                 
         except Exception as e:
-            # ここで発生していた比較エラーを上記 lambda で回避しています
             print(f"URL解析エラー ({youtube_url}): {e}")
             return current_index
 
@@ -141,7 +136,14 @@ def process_single_video(youtube_url):
     title = info.get('title', 'Unknown Title')
     source_h = info.get('height', 0)
 
-    print(f"\n🎥 処理中: {title} (解析上の最高画質: {source_h}p)")
+    # 【10時間制限の計算】
+    # 10時間 = 10 * 60 * 60 = 36000秒
+    MAX_PROCESS_TIME = 36000
+    effective_duration = min(duration, MAX_PROCESS_TIME)
+
+    print(f"\n🎥 処理中: {title} (最高画質: {source_h}p)")
+    if duration > MAX_PROCESS_TIME:
+        print(f"⚠️ 動画が10時間を超えているため、10時間地点で切り上げます（総時間: {format_time(duration)}）")
     
     cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
     
@@ -149,23 +151,21 @@ def process_single_video(youtube_url):
         print("エラー: 動画ストリームを開けませんでした。")
         return current_index
 
-    # --- 最初の位置を1分(60秒)に設定 ---
-    start_time = 60 if duration > 60 else duration // 2
+    # 最初の位置を1分(60秒)に設定
+    start_time = 60 if effective_duration > 60 else effective_duration // 2
     current_time_sec = start_time
     
     def save_and_cleanup(frame_data, time_str, index):
-        # OpenCVが実際にデコードした生の解像度
         actual_h, actual_w, _ = frame_data.shape
-        
-        # 拡大防止ロジック
         valid_res = [res for res in RESOLUTIONS if res[1] <= actual_h]
         
-        # 4Kが利用可能なら、50%の確率で4Kを維持、50%でランダムリサイズ
-        
-        target_res = random.choice(valid_res) if valid_res else (actual_w, actual_h)
+        # 4Kなら50%で維持、それ以外はランダム
+        if actual_h >= 2160:
+            target_res = (actual_w, actual_h) if random.random() < 0.5 else random.choice(valid_res)
+        else:
+            target_res = random.choice(valid_res) if valid_res else (actual_w, actual_h)
 
         final_frame = cv2.resize(frame_data, (target_res[0], target_res[1]), interpolation=cv2.INTER_AREA)
-        
         file_name = f"not_glitch_image_{index:05d}.jpg"
         cv2.imwrite(file_name, final_frame)
         
@@ -173,28 +173,27 @@ def process_single_video(youtube_url):
         upload_or_update_to_drive(file_name)
         
         print(f"  -> 保存完了: {target_res[1]}p (デコード元: {actual_h}p)")
-        
         if os.path.exists(file_name):
             os.remove(file_name)
 
-    # --- 以降、キャプチャループ ---
-    # (既存の cap.set / cap.read / save_and_cleanup のループを続けてください)
-
-    # --- 最初のキャプチャ（1分後） ---
+    # --- 最初のキャプチャ ---
     cap.set(cv2.CAP_PROP_POS_MSEC, current_time_sec * 1000)
     success, frame = cap.read()
     if success:
         timestamp = format_time(current_time_sec)
-        print(f"[{timestamp}] 最初のキャプチャ（開始1分後）を実行中...")
+        print(f"[{timestamp}] 最初のキャプチャを実行中...")
         save_and_cleanup(frame, timestamp, current_index)
         current_index += 1
         save_next_index(current_index)
 
-    # --- その後、2~4分おきにランダムキャプチャ ---
-    while current_time_sec < duration:
-        interval = random.randint(120, 240) # 2~4分
+    # --- ランダム間隔ループ（10時間制限付き） ---
+    while current_time_sec < effective_duration:
+        interval = random.randint(120, 240)
         current_time_sec += interval
-        if current_time_sec >= duration: break
+        
+        # 次の間隔が制限時間を超える場合は終了
+        if current_time_sec >= effective_duration:
+            break
 
         cap.set(cv2.CAP_PROP_POS_MSEC, current_time_sec * 1000)
         success, frame = cap.read()
