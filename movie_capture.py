@@ -16,10 +16,11 @@ SCOPES = ['https://www.googleapis.com/auth/drive.file']
 COUNTER_FILE = 'last_index.txt'
 CSV_FILE = 'captures_log.csv'
 URL_LIST_FILE = 'urls.txt'
-
-# 【重要】ここにGoogleドライブのフォルダIDを入力してください
-# 空（None）にするとマイドライブのルートに保存されます
 FOLDER_ID = '1qKmIlYTqYuXxwyu4_XzbF0b2exdlcutc'
+
+# 【重要】ここで正面顔と横顔の分類器を定義します（エラーの直接の原因）
+frontal_face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+profile_face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_profileface.xml')
 
 RESOLUTIONS = [
     (256, 144), (426, 240), (640, 360), (854, 480), (1280, 720), (1920, 1080), (3840, 2160)
@@ -44,30 +45,22 @@ def get_drive_service():
 
 def upload_or_update_to_drive(file_name, mimetype='image/jpeg'):
     service = get_drive_service()
-    
-    # 指定フォルダ内にある同名ファイルを検索
     query = f"name = '{file_name}' and trashed = false"
     if FOLDER_ID:
         query += f" and '{FOLDER_ID}' in parents"
-        
     results = service.files().list(q=query, fields="files(id, name)").execute()
     items = results.get('files', [])
-
     media = MediaFileUpload(file_name, mimetype=mimetype, resumable=True)
-    
     if items:
-        # 既存ファイルの更新
         file_id = items[0]['id']
         service.files().update(fileId=file_id, media_body=media).execute()
         print(f"  -> Drive更新完了: {file_name}")
     else:
-        # 新規作成（親フォルダを指定）
         file_metadata = {'name': file_name}
         if FOLDER_ID:
             file_metadata['parents'] = [FOLDER_ID]
-            
         file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        print(f"  -> Drive新規保存: {file_name} (ID: {file.get('id')})")
+        print(f"  -> Drive新規保存: {file_name}")
 
 # --- 補助機能 ---
 
@@ -98,7 +91,6 @@ def log_to_csv(title, url, timestamp, res_text):
 def process_single_video(youtube_url):
     current_index = get_next_index()
     
-    # 【4K/最高画質用設定】
     ydl_opts = {
         'format': 'bestvideo[height<=2160]', 
         'quiet': True,
@@ -110,7 +102,6 @@ def process_single_video(youtube_url):
             info = ydl.extract_info(youtube_url, download=False)
             stream_url = None
             if 'formats' in info:
-                # heightがNoneの場合を考慮してソート
                 formats = sorted(
                     info['formats'], 
                     key=lambda x: (x.get('height') if x.get('height') is not None else 0), 
@@ -121,13 +112,10 @@ def process_single_video(youtube_url):
                     if u and '.m3u8' not in u and f.get('vcodec') != 'none':
                         stream_url = u
                         break
-            
             if not stream_url:
                 stream_url = info.get('url')
-
             if not stream_url:
                 raise Exception("ストリームURLの取得に失敗しました。")
-                
         except Exception as e:
             print(f"URL解析エラー ({youtube_url}): {e}")
             return current_index
@@ -136,30 +124,53 @@ def process_single_video(youtube_url):
     title = info.get('title', 'Unknown Title')
     source_h = info.get('height', 0)
 
-    # 【10時間制限の計算】
-    # 10時間 = 10 * 60 * 60 = 36000秒
-    MAX_PROCESS_TIME = 36000
-    effective_duration = min(duration, MAX_PROCESS_TIME)
-
     print(f"\n🎥 処理中: {title} (最高画質: {source_h}p)")
-    if duration > MAX_PROCESS_TIME:
-        print(f"⚠️ 動画が10時間を超えているため、10時間地点で切り上げます（総時間: {format_time(duration)}）")
     
     cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
-    
     if not cap.isOpened():
         print("エラー: 動画ストリームを開けませんでした。")
         return current_index
 
-    # 最初の位置を1分(60秒)に設定
-    start_time = 60 if effective_duration > 60 else effective_duration // 2
-    current_time_sec = start_time
+    current_time_sec = 60 if duration > 60 else duration // 2
     
+    # 強化された顔認識関数
+    def contains_face(frame_data):
+        """正面顔または横顔が含まれているかチェックする"""
+        gray = cv2.cvtColor(frame_data, cv2.COLOR_BGR2GRAY)
+        
+        # 後ろ姿を避けるため、minNeighbors を高め（12〜15）に設定しています
+        # 1. 正面顔
+        frontal_faces = frontal_face_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=20, minSize=(50, 50)
+        )
+        if len(frontal_faces) > 0:
+            return True
+
+        # 2. 横顔（右向き）
+        profile_faces = profile_face_cascade.detectMultiScale(
+            gray, scaleFactor=1.1, minNeighbors=20, minSize=(50, 50)
+        )
+        if len(profile_faces) > 0:
+            return True
+            
+        # 3. 横顔（左向き：反転）
+        gray_flipped = cv2.flip(gray, 1)
+        profile_faces_flipped = profile_face_cascade.detectMultiScale(
+            gray_flipped, scaleFactor=1.1, minNeighbors=20, minSize=(50, 50)
+        )
+        if len(profile_faces_flipped) > 0:
+            return True
+            
+        return False
+
     def save_and_cleanup(frame_data, time_str, index):
+        if not contains_face(frame_data):
+            print(f"  [Skip] 顔が検出されませんでした ({time_str})")
+            return index
+
         actual_h, actual_w, _ = frame_data.shape
         valid_res = [res for res in RESOLUTIONS if res[1] <= actual_h]
         
-        # 4Kなら50%で維持、それ以外はランダム
         if actual_h >= 2160:
             target_res = (actual_w, actual_h) if random.random() < 0.5 else random.choice(valid_res)
         else:
@@ -175,53 +186,39 @@ def process_single_video(youtube_url):
         print(f"  -> 保存完了: {target_res[1]}p (デコード元: {actual_h}p)")
         if os.path.exists(file_name):
             os.remove(file_name)
-
-    # --- 最初のキャプチャ ---
-    cap.set(cv2.CAP_PROP_POS_MSEC, current_time_sec * 1000)
-    success, frame = cap.read()
-    if success:
-        timestamp = format_time(current_time_sec)
-        print(f"[{timestamp}] 最初のキャプチャを実行中...")
-        save_and_cleanup(frame, timestamp, current_index)
-        current_index += 1
-        save_next_index(current_index)
-
-    # --- ランダム間隔ループ（10時間制限付き） ---
-    while current_time_sec < effective_duration:
-        interval = random.randint(120, 240)
-        current_time_sec += interval
         
-        # 次の間隔が制限時間を超える場合は終了
-        if current_time_sec >= effective_duration:
-            break
+        return index + 1
 
+    # --- キャプチャループ（30-90秒間隔） ---
+    while current_time_sec < duration:
         cap.set(cv2.CAP_PROP_POS_MSEC, current_time_sec * 1000)
         success, frame = cap.read()
         
         if success:
             timestamp = format_time(current_time_sec)
-            print(f"[{timestamp}] キャプチャ中...")
-            save_and_cleanup(frame, timestamp, current_index)
-            current_index += 1
-            save_next_index(current_index)
+            print(f"[{timestamp}] スキャン中...")
+            new_index = save_and_cleanup(frame, timestamp, current_index)
+            
+            if new_index > current_index:
+                current_index = new_index
+                save_next_index(current_index)
         else:
             print(f"[{format_time(current_time_sec)}] フレーム取得失敗")
 
+        interval = random.randint(60, 120)
+        current_time_sec += interval
+
     cap.release()
     return current_index
-
-# --- メイン実行部 ---
 
 def main():
     if not os.path.exists(URL_LIST_FILE):
         print(f"エラー: {URL_LIST_FILE} が見つかりません。")
         return
-
     with open(URL_LIST_FILE, 'r') as f:
         urls = [line.strip() for line in f if line.strip()]
 
     print(f"合計 {len(urls)} 本の動画を処理します。")
-
     for i, url in enumerate(urls, 1):
         print(f"\n--- 進捗: {i}/{len(urls)} ---")
         try:
@@ -230,8 +227,7 @@ def main():
         except Exception as e:
             print(f"エラーが発生しました: {e}")
             continue
-
-    print("\n✨ すべての処理が完了しました。指定フォルダを確認してください。")
+    print("\n✨ すべての処理が完了しました。")
 
 if __name__ == "__main__":
     main()
