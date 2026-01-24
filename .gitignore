@@ -7,6 +7,5 @@ output/*
 /venv311
 venv
 credentials.json
-last_index.txt
 token.pickle
 ffmpeg.exe
