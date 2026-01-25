@@ -292,17 +292,17 @@ def process_single_video(youtube_url):
 
         # 4Kの場合、顔が相対的に小さくなるため、minNeighborsとminSizeを微調整
 
-        frontal_faces = frontal_face_cascade.detectMultiScale(gray, 1.1, 15, minSize=(50, 50))
+        frontal_faces = frontal_face_cascade.detectMultiScale(gray, 1.1, 20, minSize=(50, 50))
 
         if len(frontal_faces) > 0: return True
 
-        profile_faces = profile_face_cascade.detectMultiScale(gray, 1.1, 15, minSize=(50, 50))
+        profile_faces = profile_face_cascade.detectMultiScale(gray, 1.1, 20, minSize=(50, 50))
 
         if len(profile_faces) > 0: return True
 
         gray_flipped = cv2.flip(gray, 1)
 
-        profile_flipped = profile_face_cascade.detectMultiScale(gray_flipped, 1.1, 15, minSize=(50, 50))
+        profile_flipped = profile_face_cascade.detectMultiScale(gray_flipped, 1.1, 20, minSize=(50, 50))
 
         return len(profile_flipped) > 0
 
