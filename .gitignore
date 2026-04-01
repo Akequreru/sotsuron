@@ -14,3 +14,4 @@ glitch_image_1_folder/*
 merged_output/*
 reindexed_images/*
 reindexed_labels/*
+mediapipe_results/*
