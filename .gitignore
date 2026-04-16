@@ -15,3 +15,4 @@ merged_output/*
 reindexed_images/*
 reindexed_labels/*
 mediapipe_results/*
+visualized_results/*

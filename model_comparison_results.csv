@@ -1,0 +1,21 @@
+Model,Glitch Category,Total Instances,Detected,Detection Rate (%)
+MTCNN,Mesh collapse,166,88,53.0
+MTCNN,Parts missing,62,5,8.1
+MTCNN,Face not displayed,64,0,0.0
+MTCNN,Texture discoloration,138,55,39.9
+RetinaFace,Mesh collapse,166,100,60.2
+RetinaFace,Parts missing,62,5,8.1
+RetinaFace,Face not displayed,64,0,0.0
+RetinaFace,Texture discoloration,138,106,76.8
+BlazeFace,Mesh collapse,166,94,56.6
+BlazeFace,Parts missing,62,17,27.4
+BlazeFace,Face not displayed,64,0,0.0
+BlazeFace,Texture discoloration,138,62,44.9
+YuNet,Mesh collapse,166,50,30.1
+YuNet,Parts missing,62,3,4.8
+YuNet,Face not displayed,64,0,0.0
+YuNet,Texture discoloration,138,41,29.7
+OpenCV_DNN,Mesh collapse,166,102,61.4
+OpenCV_DNN,Parts missing,62,10,16.1
+OpenCV_DNN,Face not displayed,64,0,0.0
+OpenCV_DNN,Texture discoloration,138,70,50.7
